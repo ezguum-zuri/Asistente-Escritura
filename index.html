@@ -169,13 +169,22 @@ async function run(){
 // ---- Motor gratuito: LanguageTool ----
 async function withLanguageTool(text, lang){
   const code = {auto:'auto', castellano:'es', 'inglés':'en-US'}[lang] || 'auto';
-  const body = new URLSearchParams({ text, language: code });
-  if (code === 'auto') body.set('preferredVariants', 'es,en-US');
-  let r;
-  try { r = await fetch('https://api.languagetool.org/v2/check', { method:'POST', body, signal: ctrl.signal }); }
-  catch(e){ if (e.name==='AbortError') throw e; throw new Error('No hay conexión con LanguageTool.'); }
+  const call = async (language) => {
+    const body = new URLSearchParams({ text, language });
+    if (language === 'auto') body.set('preferredVariants', 'en-US');
+    try {
+      return await fetch('https://api.languagetool.org/v2/check', {
+        method: 'POST', body, signal: ctrl.signal
+      });
+    } catch(e){ if (e.name==='AbortError') throw e; throw new Error(location.protocol === 'https:' ? 'No hay conexión con LanguageTool. Revisa tu conexión a internet.' : 'No se pudo conectar con LanguageTool desde aquí. Abre la página publicada en GitHub Pages.'); }
+  };
+  let r = await call(code);
+  if (r.status === 400 && code === 'auto') r = await call('es'); // si falla la detección, castellano
   if (r.status === 429) throw new Error('Demasiadas peticiones seguidas. Espera un minuto.');
-  if (!r.ok) throw new Error('LanguageTool no ha podido revisar el texto (' + r.status + ').');
+  if (!r.ok) {
+    let detail = ''; try { detail = (await r.text()).slice(0, 120); } catch(e){}
+    throw new Error('LanguageTool no ha podido revisar el texto (' + r.status + ')' + (detail ? ': ' + detail : '.'));
+  }
   const data = await r.json();
   const matches = (data.matches || []).filter(m => m.replacements && m.replacements.length)
     .sort((a,b) => a.offset - b.offset);
